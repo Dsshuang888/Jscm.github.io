@@ -516,9 +516,9 @@
                </div>
                <div class="buttons-container">
                    <button id="tutorialButton" onclick="openTutorial()">👋 添加微信</button>
-                   <button id="renderHtmlButton" onclick="renderHtml()">🔄 还原HTML</button>
+                   <!-- 移除还原HTML按钮 -->
                    <label for="fileInput" class="file-label">📂 导入文件</label>
-                   <input type="file" id="fileInput" accept=".txt, .md" style="display: none;">
+                   <input type="file" id="fileInput" accept=".txt, .md, .html, .htm" style="display: none;">
                </div>
                <textarea id="originalText" placeholder="在此处输入您的文本..."></textarea>
            </div>
@@ -559,10 +559,17 @@
            const file = event.target.files[0];
            if (file) {
                const reader = new FileReader();
-               if (file.type === "text/plain") {
+               if (file.type === "text/plain" || file.type === "text/markdown") {
                    reader.onload = () => {
                        originalText.value = reader.result;
                        convertToHtml();
+                   };
+                   reader.readAsText(file);
+               } else if (file.type === "text/html") {
+                   reader.onload = () => {
+                       const htmlContent = reader.result;
+                       originalText.value = htmlContent;
+                       renderHtml(); // 直接使用HTML渲染功能
                    };
                    reader.readAsText(file);
                } else if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
@@ -603,6 +610,14 @@
 
        function convertToHtml() {
            const text = originalText.value;
+           
+           // 检测是否已经包含HTML标签
+           if (/<[a-z][\s\S]*>/i.test(text)) {
+               // 如果包含HTML标签，直接使用renderHtml函数
+               renderHtml();
+               return;
+           }
+           
            const convertedText = convertPunctuation(text);
            
            let html = convertedText
@@ -621,6 +636,9 @@
                .replace(/#([^#\n]+)/g, '<span style="color: #000; font-weight: bold;">#$1</span>')
                .replace(/🌙|✨|😍|🎉|💖|👍|🛒/g, match => `<span style="font-size: 1.2em;">${match}</span>`);
            
+           // 添加图片路径处理逻辑
+           html = processImagePaths(html);
+           
            preview.innerHTML = html;
 
            // 更新字数统计
@@ -634,6 +652,52 @@
            }
        }
        
+       function renderHtml() {
+           const text = originalText.value;
+           
+           // 只处理一些必要的HTML结构问题，不修改任何样式
+           const processedText = text
+               .replace(/<\/p>\s*<br\s*\/?>/g, '</p>')
+               .replace(/<\/ul>\s*<br\s*\/?>/g, '</ul>');
+           
+           // 添加图片路径处理
+           const processedHtml = processImagePaths(processedText);
+           
+           // 直接设置HTML内容，完全保留原始样式
+           preview.innerHTML = processedHtml;
+           
+           // 只处理代码高亮，不修改其他样式
+           const codeBlocks = preview.getElementsByTagName('code');
+           for (let block of codeBlocks) {
+               if (block.className.includes('language-')) {
+                   hljs.highlightElement(block);
+               }
+           }
+           
+           // 更新字数统计
+           updateWordCount();
+       }
+       
+       // 添加图片路径处理函数
+       function processImagePaths(html) {
+           // 检测当前环境
+           const isGitHubPages = window.location.hostname.includes('github.io') || 
+                                window.location.hostname.includes('githubusercontent.com');
+           
+           if (!isGitHubPages) {
+               return html; // 本地环境不做处理
+           }
+           
+           // 处理相对路径的图片
+           return html.replace(/<img\s+src=["'](?!http|\/\/|data:)(.*?)["']/gi, (match, imgPath) => {
+               // 获取当前页面的基础路径
+               const basePath = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
+               // 构建完整URL
+               const fullUrl = new URL(imgPath, basePath).href;
+               return `<img src="${fullUrl}"`;
+           });
+       }
+       
        // 添加字数统计函数
        function updateWordCount() {
            const text = preview.textContent || '';
@@ -643,28 +707,19 @@
        
        function renderHtml() {
            const text = originalText.value;
-           const processedText = text.replace(/<\/p>\s*<br\s*\/?>/g, '</p>').replace(/<\/ul>\s*<br\s*\/?>/g, '</ul>');
-           preview.innerHTML = processedText;
            
-           preview.style.fontSize = '17px';
-           preview.style.lineHeight = '1.6';
+           // 只处理一些必要的HTML结构问题，不修改任何样式
+           const processedText = text
+               .replace(/<\/p>\s*<br\s*\/?>/g, '</p>')
+               .replace(/<\/ul>\s*<br\s*\/?>/g, '</ul>');
            
-           const elements = preview.getElementsByTagName('*');
-           for (let i = 0; i < elements.length; i++) {
-               const element = elements[i];
-               const computedStyle = window.getComputedStyle(element);
-               
-               if (computedStyle.fontSize === preview.style.fontSize) {
-                   element.style.fontSize = '17px';
-               }
-               
-               if (element.tagName.toLowerCase() === 'p') {
-                   element.style.margin = '0.8em 0';
-                   element.style.padding = '0';
-                   element.style.lineHeight = '1.6';
-               }
-           }
-
+           // 添加图片路径处理
+           const processedHtml = processImagePaths(processedText);
+           
+           // 直接设置HTML内容，完全保留原始样式
+           preview.innerHTML = processedHtml;
+           
+           // 只处理代码高亮，不修改其他样式
            const codeBlocks = preview.getElementsByTagName('code');
            for (let block of codeBlocks) {
                if (block.className.includes('language-')) {
@@ -780,37 +835,8 @@
            }
        });
        
-       function renderHtml() {
-           const text = originalText.value;
-           const processedText = text.replace(/<\/p>\s*<br\s*\/?>/g, '</p>').replace(/<\/ul>\s*<br\s*\/?>/g, '</ul>');
-           preview.innerHTML = processedText;
-           
-           preview.style.fontSize = '17px';
-           preview.style.lineHeight = '1.6';
-           
-           const elements = preview.getElementsByTagName('*');
-           for (let i = 0; i < elements.length; i++) {
-               const element = elements[i];
-               const computedStyle = window.getComputedStyle(element);
-               
-               if (computedStyle.fontSize === preview.style.fontSize) {
-                   element.style.fontSize = '17px';
-               }
-               
-               if (element.tagName.toLowerCase() === 'p') {
-                   element.style.margin = '0.8em 0';
-                   element.style.padding = '0';
-                   element.style.lineHeight = '1.6';
-               }
-           }
-
-           const codeBlocks = preview.getElementsByTagName('code');
-           for (let block of codeBlocks) {
-               if (block.className.includes('language-')) {
-                   hljs.highlightElement(block);
-               }
-           }
-       }
+       // 删除这里的重复函数定义
+       // function renderHtml() { ... }
 
        originalText.addEventListener('input', convertToHtml);
        
